@@ -1,0 +1,49 @@
+[Unit]
+Description=Drone Cabinet Control System
+After=network.target mysql.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/drone-cabinet
+Environment=PYTHONPATH=/opt/drone-cabinet
+Environment=FLASK_ENV=production
+Environment=FLASK_DEBUG=False
+
+# 环境变量配置 - 请根据实际情况修改
+Environment=SECRET_KEY=your-production-secret-key-change-this
+Environment=DB_HOST=localhost
+Environment=DB_PORT=3306
+Environment=DB_USER=drone_user
+Environment=DB_PASSWORD=your-db-password
+Environment=DB_NAME=drone_cabinet
+Environment=MODBUS_HOST=192.168.1.100
+Environment=MODBUS_PORT=502
+Environment=API_KEY=your-api-key-change-this
+Environment=HOST=0.0.0.0
+Environment=PORT=5000
+
+# 启动命令
+ExecStart=/usr/bin/python3 /opt/drone-cabinet/deploy.py
+
+# 重启策略
+Restart=always
+RestartSec=10
+
+# 日志配置
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=drone-cabinet
+
+# 安全配置
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/drone-cabinet/logs
+ReadWritePaths=/opt/drone-cabinet/database
+
+[Install]
+WantedBy=multi-user.target

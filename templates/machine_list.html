@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>无人机快递柜管理系统</title>
+
+    <style>
+        .machine-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            padding: 20px;
+        }
+        .machine-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .machine-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .machine-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .machine-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-online {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .machine-info {
+            margin-bottom: 15px;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        .machine-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 14px;
+            text-align: center;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+        .header {
+            background: #343a40;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .refresh-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>无人机快递柜管理系统</h1>
+        <p>机器管理控制台</p>
+    </div>
+    
+    <button class="btn btn-secondary refresh-btn" onclick="location.reload()">刷新状态</button>
+    
+    <div class="machine-grid" id="machineGrid">
+        <!-- 机器卡片将通过JavaScript动态加载 -->
+    </div>
+
+    <script>
+        // 安全key处理
+        let securityKey = null;
+        
+        // 从URL或localStorage获取key
+        function getSecurityKey() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const keyFromUrl = urlParams.get('key');
+            
+            if (keyFromUrl) {
+                securityKey = keyFromUrl;
+                localStorage.setItem('securityKey', keyFromUrl);
+            } else {
+                securityKey = localStorage.getItem('securityKey');
+            }
+            
+            return securityKey;
+        }
+        
+        // 为URL添加key参数
+        function addKeyToUrl(url) {
+            if (!securityKey) {
+                alert('安全key丢失，请重新设置key');
+                return url;
+            }
+            
+            const separator = url.includes('?') ? '&' : '?';
+            return `${url}${separator}key=${securityKey}`;
+        }
+        
+        // 页面加载时初始化
+        function initializePage() {
+            getSecurityKey();
+            loadMachines();
+        }
+        
+        // 获取机器列表
+        async function loadMachines() {
+            try {
+                const response = await fetch(addKeyToUrl('/api/machines'));
+                const result = await response.json();
+                
+                if (result.success && result.data && result.data.machines) {
+                    const machines = result.data.machines;
+                    displayMachines(machines);
+                } else {
+                    console.error('加载机器列表失败:', result.message || '未知错误');
+                    document.getElementById('machineGrid').innerHTML = 
+                        '<div style="text-align: center; padding: 40px; color: #666;">加载机器列表失败</div>';
+                }
+            } catch (error) {
+                console.error('加载机器列表失败:', error);
+                document.getElementById('machineGrid').innerHTML = 
+                    '<div style="text-align: center; padding: 40px; color: #666;">加载机器列表失败</div>';
+            }
+        }
+
+        // 显示机器列表
+        function displayMachines(machines) {
+            const grid = document.getElementById('machineGrid');
+            
+            if (machines.length === 0) {
+                grid.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">暂无机器配置</div>';
+                return;
+            }
+
+            grid.innerHTML = machines.map(machine => `
+                <div class="machine-card">
+                    <div class="machine-header">
+                        <div class="machine-name">${machine.machine_name}</div>
+                        <div class="status-badge ${machine.is_online ? 'status-online' : 'status-offline'}">
+                            ${machine.is_online ? '在线' : '离线'}
+                        </div>
+                    </div>
+                    <div class="machine-info">
+                        <div class="info-row">
+                            <span>位置:</span>
+                            <span>${machine.location || '未设置'}</span>
+                        </div>
+                        <div class="info-row">
+                            <span>IP地址:</span>
+                            <span>${machine.plc_host}:${machine.plc_port}</span>
+                        </div>
+                        <div class="info-row">
+                            <span>最后更新:</span>
+                            <span>${new Date(machine.updated_at).toLocaleString()}</span>
+                        </div>
+                    </div>
+                    <div class="machine-actions">
+                        <a href="/machine/${machine.machine_name}?key=${securityKey || ''}" class="btn btn-primary">控制面板</a>
+                        <button class="btn btn-secondary" onclick="testConnection('${machine.machine_name}')">测试连接</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 测试机器连接
+        async function testConnection(machineName) {
+            try {
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/test`));
+                const result = await response.json();
+                alert(result.success ? '连接测试成功' : `连接测试失败: ${result.message}`);
+                loadMachines(); // 刷新状态
+            } catch (error) {
+                alert('连接测试失败: ' + error.message);
+            }
+        }
+
+        // 页面加载时获取机器列表
+        document.addEventListener('DOMContentLoaded', initializePage);
+        
+        // 每30秒自动刷新状态
+        setInterval(loadMachines, 30000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>机器控制面板 - {{ machine_name }}</title>
+
+    <style>
+        .control-panel {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .machine-header {
+            background: #343a40;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .control-sections {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        .control-section {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 5px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn:hover { transform: translateY(-1px); }
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .input-group {
+            margin: 10px 0;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .status-display {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .status-online { color: #28a745; }
+        .status-offline { color: #dc3545; }
+        .log-container {
+            height: 200px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .back-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #007bff;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="control-panel">
+        <div class="machine-header">
+            <div>
+                <h1>{{ machine_name }} 控制面板</h1>
+                <p>位置: {{ location }} | IP: {{ plc_host }}:{{ plc_port }}</p>
+            </div>
+            <div class="status-display">
+                <span id="connectionStatus" class="status-offline">离线</span>
+            </div>
+        </div>
+
+        <div class="control-sections">
+            <!-- 舱门控制 -->
+            <div class="control-section">
+                <div class="section-title">舱门控制</div>
+                <div class="status-display" id="doorStatus">舱门状态: 未知</div>
+                <button class="btn btn-success" onclick="controlDoor('open')">开启舱门</button>
+                <button class="btn btn-warning" onclick="controlDoor('close')">关闭舱门</button>
+                <button class="btn btn-secondary" onclick="getDoorStatus()">查询状态</button>
+            </div>
+
+            <!-- 存件流程 -->
+            <div class="control-section">
+                <div class="section-title">存件流程</div>
+                <div class="status-display" id="storageStatus">存件状态: 待机</div>
+                <div class="input-group">
+                    <label>取件码前三位:</label>
+                    <input type="text" id="pickupCodeFirst" maxlength="3" placeholder="前三位">
+                </div>
+                <div class="input-group">
+                    <label>取件码后三位:</label>
+                    <input type="text" id="pickupCodeLast" maxlength="3" placeholder="后三位">
+                </div>
+                <button class="btn btn-primary" onclick="startStorageProcess()">开始存件流程</button>
+                <button class="btn btn-success" onclick="confirmDroneLanded()">确认无人机降落</button>
+                <button class="btn btn-warning" onclick="confirmServoOpen()">确认舵机打开</button>
+                <button class="btn btn-danger" onclick="confirmServoClose()">确认舵机关闭</button>
+                <button class="btn btn-secondary" onclick="confirmDroneTakeoff()">确认无人机起飞</button>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="storageProgress" style="width: 0%"></div>
+                </div>
+            </div>
+
+
+
+            <!-- 寄件流程 -->
+            <div class="control-section">
+                <div class="section-title">寄件流程</div>
+                <div class="status-display" id="sendStatus">寄件状态: 待机</div>
+                <div class="status-display" id="sendOperationStatus">操作状态: 未知</div>
+                <div class="input-group">
+                    <label>寄件码前三位:</label>
+                    <input type="text" id="sendCodeFirst" maxlength="3" placeholder="前三位">
+                </div>
+                <div class="input-group">
+                    <label>寄件码后三位:</label>
+                    <input type="text" id="sendCodeLast" maxlength="3" placeholder="后三位">
+                </div>
+                <button class="btn btn-primary" onclick="setSendCode()">设置寄件码</button>
+                <button class="btn btn-success" onclick="startSendProcess()">开始寄件流程</button>
+                <button class="btn btn-secondary" onclick="getSendStatus()">查询寄件状态</button>
+                <button class="btn btn-warning" onclick="startSendMonitoring()">开始监视</button>
+                <button class="btn btn-danger" onclick="stopSendMonitoring()">停止监视</button>
+            </div>
+
+            <!-- 系统监控 -->
+            <div class="control-section">
+                <div class="section-title">系统监控</div>
+                <button class="btn btn-secondary" onclick="getSystemStatus()">刷新状态</button>
+                <button class="btn btn-secondary" onclick="testConnection()">测试连接</button>
+                <div class="status-display" id="systemInfo">系统信息加载中...</div>
+            </div>
+
+            <!-- 操作日志 -->
+            <div class="control-section" style="grid-column: 1 / -1;">
+                <div class="section-title">操作日志</div>
+                <button class="btn btn-secondary" onclick="clearLogs()">清空日志</button>
+                <div class="log-container" id="operationLogs"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const machineName = '{{ machine_name }}';
+        let logs = [];
+        let securityKey = null;
+
+        // 初始化安全key
+        function initSecurityKey() {
+            // 从URL参数获取key
+            const urlParams = new URLSearchParams(window.location.search);
+            const keyFromUrl = urlParams.get('key');
+            
+            if (keyFromUrl) {
+                // 保存key到localStorage
+                localStorage.setItem('securityKey', keyFromUrl);
+                securityKey = keyFromUrl;
+                addLog('安全key已设置', 'success');
+                
+                // 清除URL中的key参数（可选）
+                const newUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, newUrl);
+            } else {
+                // 从localStorage获取key
+                securityKey = localStorage.getItem('securityKey');
+                if (!securityKey) {
+                    addLog('警告: 未找到安全key，请通过正确的链接访问', 'error');
+                }
+            }
+        }
+
+        // 为API请求添加key参数
+        function addKeyToUrl(url) {
+            if (!securityKey) return url;
+            const separator = url.includes('?') ? '&' : '?';
+            return `${url}${separator}key=${securityKey}`;
+        }
+
+        // 移除window.onload，使用DOMContentLoaded事件
+
+        // 添加日志
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            logs.unshift(`[${timestamp}] ${message}`);
+            if (logs.length > 100) logs.pop();
+            updateLogDisplay();
+        }
+
+        // 更新日志显示
+        function updateLogDisplay() {
+            document.getElementById('operationLogs').innerHTML = logs.join('\n');
+        }
+
+        // 清空日志
+        function clearLogs() {
+            logs = [];
+            updateLogDisplay();
+        }
+
+        // 舱门控制
+        async function controlDoor(action) {
+            try {
+                addLog(`正在${action === 'open' ? '开启' : '关闭'}舱门...`);
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/door/${action}`), {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addLog(`舱门${action === 'open' ? '开启' : '关闭'}成功`);
+                    getDoorStatus();
+                } else {
+                    addLog(`舱门操作失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`舱门操作异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 获取舱门状态
+        async function getDoorStatus() {
+            try {
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/door/status`));
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    document.getElementById('doorStatus').textContent = `舱门状态: ${result.data.status || '未知'}`;
+                } else {
+                    document.getElementById('doorStatus').textContent = `舱门状态: 获取失败`;
+                    addLog(`获取舱门状态失败: ${result.message || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                document.getElementById('doorStatus').textContent = `舱门状态: 连接异常`;
+                addLog(`获取舱门状态失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 存件流程
+        async function startStorageProcess() {
+            const codeFirst = document.getElementById('pickupCodeFirst').value;
+            const codeLast = document.getElementById('pickupCodeLast').value;
+            
+            if (!codeFirst || !codeLast) {
+                alert('请输入完整的取件码');
+                return;
+            }
+
+            try {
+                addLog('开始存件流程...');
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/storage/start`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pickup_code_first: codeFirst,
+                        pickup_code_last: codeLast
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addLog('存件流程启动成功');
+                    updateStorageProgress(20);
+                } else {
+                    addLog(`存件流程启动失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`存件流程异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 确认无人机降落
+        async function confirmDroneLanded() {
+            try {
+                addLog('确认无人机降落...');
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/storage/drone-landed`), {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addLog('无人机降落确认成功');
+                    updateStorageProgress(40);
+                } else {
+                    addLog(`无人机降落确认失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`无人机降落确认异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 确认舵机操作
+        async function confirmServoOpen() {
+            await confirmServoAction('open', '打开');
+        }
+
+        async function confirmServoClose() {
+            await confirmServoAction('close', '关闭');
+        }
+
+        async function confirmServoAction(action, actionText) {
+            try {
+                addLog(`确认舵机${actionText}...`);
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/storage/servo-${action}`), {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addLog(`舵机${actionText}确认成功`);
+                    updateStorageProgress(action === 'open' ? 60 : 80);
+                } else {
+                    addLog(`舵机${actionText}确认失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`舵机${actionText}确认异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 确认无人机起飞
+        async function confirmDroneTakeoff() {
+            try {
+                addLog('确认无人机起飞...');
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/storage/drone-takeoff`), {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addLog('无人机起飞确认成功，存件流程完成');
+                    updateStorageProgress(100);
+                } else {
+                    addLog(`无人机起飞确认失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`无人机起飞确认异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 更新存件进度
+        function updateStorageProgress(percent) {
+            document.getElementById('storageProgress').style.width = percent + '%';
+        }
+
+        // 设置取件码
+        async function setPickupCode() {
+            const codeFirst = document.getElementById('pickupCodeFirst').value;
+            const codeLast = document.getElementById('pickupCodeLast').value;
+            
+            if (!codeFirst || !codeLast) {
+                alert('请输入完整的取件码');
+                return;
+            }
+
+            try {
+                addLog('设置取件码...');
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/pickup/set-code`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pickup_code_first: codeFirst,
+                        pickup_code_last: codeLast
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addLog('取件码设置成功');
+                } else {
+                    addLog(`取件码设置失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`取件码设置异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 取件流程
+        async function startPickupProcess() {
+            const codeFirst = document.getElementById('pickupCodeFirst').value;
+            const codeLast = document.getElementById('pickupCodeLast').value;
+            
+            if (!codeFirst || !codeLast) {
+                alert('请输入完整的取件码');
+                return;
+            }
+
+            try {
+                addLog('开始取件流程...');
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/pickup/start`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pickup_code_first: codeFirst,
+                        pickup_code_last: codeLast
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addLog('取件流程启动成功');
+                } else {
+                    addLog(`取件流程启动失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`取件流程异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 打开回收箱
+        async function openRecycleBox() {
+            try {
+                addLog('打开回收箱...');
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/pickup/recycle`), {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addLog('回收箱打开成功');
+                } else {
+                    addLog(`回收箱打开失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`回收箱操作异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 获取取件状态
+        async function getPickupStatus() {
+            try {
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/pickup/status`));
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    document.getElementById('pickupStatus').textContent = `取件状态: ${result.data.status || '待机'}`;
+                } else {
+                    document.getElementById('pickupStatus').textContent = `取件状态: 获取失败`;
+                    addLog(`获取取件状态失败: ${result.message || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                document.getElementById('pickupStatus').textContent = `取件状态: 连接异常`;
+                addLog(`获取取件状态失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 设置寄件码
+        async function setSendCode() {
+            const codeFirst = document.getElementById('sendCodeFirst').value;
+            const codeLast = document.getElementById('sendCodeLast').value;
+            
+            if (!codeFirst || !codeLast) {
+                alert('请输入完整的寄件码');
+                return;
+            }
+
+            try {
+                addLog('设置寄件码...');
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/send/set-code`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        send_code_first: codeFirst,
+                        send_code_last: codeLast
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addLog('寄件码设置成功');
+                } else {
+                    addLog(`寄件码设置失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`寄件码设置异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 开始寄件流程
+        async function startSendProcess() {
+            const codeFirst = document.getElementById('sendCodeFirst').value;
+            const codeLast = document.getElementById('sendCodeLast').value;
+            
+            if (!codeFirst || !codeLast) {
+                alert('请输入完整的寄件码');
+                return;
+            }
+
+            try {
+                addLog('开始寄件流程...');
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/send/start`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        send_code_first: codeFirst,
+                        send_code_last: codeLast
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addLog('寄件流程启动成功');
+                } else {
+                    addLog(`寄件流程启动失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`寄件流程异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 获取寄件状态
+        async function getSendStatus() {
+            try {
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/send/status`));
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    document.getElementById('sendStatus').textContent = `寄件状态: ${result.data.status || '待机'}`;
+                } else {
+                    document.getElementById('sendStatus').textContent = `寄件状态: 获取失败`;
+                    addLog(`获取寄件状态失败: ${result.message || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                document.getElementById('sendStatus').textContent = `寄件状态: 连接异常`;
+                addLog(`获取寄件状态失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 获取寄件操作状态 (监视0xBC7)
+        async function getSendOperationStatus() {
+            try {
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/send/operation-status`));
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    const statusText = `操作状态: ${result.data.status_description} (${result.data.hex_value})`;
+                    document.getElementById('sendOperationStatus').textContent = statusText;
+                    
+                    // 根据状态值添加日志
+                    if (result.data.raw_status === 210) {
+                        addLog('检测到: 正在取空箱');
+                    } else if (result.data.raw_status === 211) {
+                        addLog('检测到: 取空箱完成');
+                    } else if (result.data.raw_status === 220) {
+                        addLog('检测到: 用户存寄件箱中');
+                    } else if (result.data.raw_status === 230) {
+                        addLog('检测到: 正在存寄件箱');
+                    } else if (result.data.raw_status === 231) {
+                        addLog('检测到: 存寄件箱完成');
+                        // 寄件完成，可以停止监视
+                        if (sendMonitoringInterval) {
+                            addLog('寄件流程完成，自动停止监视');
+                            stopSendMonitoring();
+                        }
+                    }
+                } else {
+                    document.getElementById('sendOperationStatus').textContent = `操作状态: 获取失败`;
+                    addLog(`获取寄件操作状态失败: ${result.message || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                document.getElementById('sendOperationStatus').textContent = `操作状态: 连接异常`;
+                addLog(`获取寄件操作状态失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 寄件监视相关变量
+        let sendMonitoringInterval = null;
+
+        // 开始寄件监视
+        function startSendMonitoring() {
+            if (sendMonitoringInterval) {
+                addLog('寄件监视已在运行中');
+                return;
+            }
+            
+            addLog('开始监视寄件操作状态 (0xBC7)');
+            // 立即获取一次状态
+            getSendOperationStatus();
+            
+            // 每2秒轮询一次
+            sendMonitoringInterval = setInterval(() => {
+                getSendOperationStatus();
+            }, 2000);
+        }
+
+        // 停止寄件监视
+        function stopSendMonitoring() {
+            if (sendMonitoringInterval) {
+                clearInterval(sendMonitoringInterval);
+                sendMonitoringInterval = null;
+                addLog('已停止监视寄件操作状态');
+            } else {
+                addLog('寄件监视未在运行');
+            }
+        }
+
+        // 获取系统状态
+        async function getSystemStatus() {
+            try {
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/status`));
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    const data = result.data;
+                    document.getElementById('systemInfo').innerHTML = `
+                        连接状态: ${data.connected ? '在线' : '离线'}<br>
+                        最后通信: ${data.last_communication || '无'}<br>
+                        系统状态: ${data.system_status || '未知'}
+                    `;
+                    document.getElementById('connectionStatus').textContent = data.connected ? '在线' : '离线';
+                    document.getElementById('connectionStatus').className = data.connected ? 'status-online' : 'status-offline';
+                } else {
+                    addLog(`获取系统状态失败: ${result.message || '未知错误'}`, 'error');
+                    document.getElementById('systemInfo').innerHTML = '获取状态失败';
+                    document.getElementById('connectionStatus').textContent = '离线';
+                    document.getElementById('connectionStatus').className = 'status-offline';
+                }
+            } catch (error) {
+                addLog(`获取系统状态失败: ${error.message}`, 'error');
+                document.getElementById('systemInfo').innerHTML = '获取状态异常';
+                document.getElementById('connectionStatus').textContent = '离线';
+                document.getElementById('connectionStatus').className = 'status-offline';
+            }
+        }
+
+        // 测试连接
+        async function testConnection() {
+            try {
+                addLog('测试连接...');
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/test`));
+                const result = await response.json();
+                if (result.success) {
+                    addLog('连接测试成功');
+                } else {
+                    addLog(`连接测试失败: ${result.message}`, 'error');
+                }
+                getSystemStatus();
+            } catch (error) {
+                addLog(`连接测试异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initSecurityKey();
+            getSystemStatus();
+            getDoorStatus();
+            getPickupStatus();
+            getSendStatus();
+            addLog('控制面板已加载');
+        });
+
+        // 定时刷新状态
+        setInterval(getSystemStatus, 30000);
+    </script>
+</body>
+</html>

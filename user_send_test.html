@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📦 用户寄件流程测试</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>📦 用户寄件流程测试</h1>
+        
+        <div class="main-content">
+            <!-- 寄件操作面板 -->
+            <div class="send-panel">
+                <h2>📮 寄件操作流程</h2>
+                <p>按照协议流程进行寄件操作测试，系统会自动分配寄件码并引导完成寄件流程</p>
+                
+                <div class="status-display" id="statusDisplay">
+                    状态：等待开始寄件流程...
+                </div>
+                
+                <!-- 寄件码显示 -->
+                <div class="pickup-code-display" id="sendCodeDisplay">
+                    <h3>📋 您的寄件码</h3>
+                    <div class="pickup-code" id="sendCodeValue">------</div>
+                    <p>请记住此寄件码，用于后续操作</p>
+                </div>
+                
+                <!-- 操作按钮 -->
+                <div class="operation-buttons">
+                    <button class="btn btn-primary" onclick="checkSendStatus()" id="checkBtn">
+                        📋 检查寄件格口状态
+                    </button>
+                    <button class="btn btn-success" onclick="generateSendCode()" id="generateCodeBtn" disabled>
+                        🎯 生成寄件码
+                    </button>
+                    <button class="btn btn-warning" onclick="takeEmptyBox()" id="takeBoxBtn" disabled>
+                        📦 取空箱
+                    </button>
+                    <button class="btn btn-info" onclick="confirmPackage()" id="confirmBtn" disabled>
+                        ✅ 确认寄件
+                    </button>
+                    <button class="btn btn-secondary" onclick="resetProcess()" id="resetBtn">
+                        🔄 重置流程
+                    </button>
+                </div>
+                
+                <!-- 寄件码输入 -->
+                <div class="input-group" id="sendCodeInput" style="display: none;">
+                    <label for="sendCode">输入寄件码进行取空箱：</label>
+                    <input type="text" id="sendCode" placeholder="请输入6位寄件码" maxlength="6">
+                    <button class="btn btn-warning" onclick="inputSendCode()" style="margin-top: 10px;">
+                        🔑 使用寄件码取空箱
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 寄存器状态监控 -->
+            <div class="register-status">
+                <h2>📊 寄件相关寄存器状态</h2>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <div class="status-label">寄件格口状态 (0xBD2)</div>
+                        <div class="status-value" id="reg-bd2">-</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">寄件码前三位 (0xBD0)</div>
+                        <div class="status-value" id="reg-bd0">-</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">寄件码后三位 (0xBD1)</div>
+                        <div class="status-value" id="reg-bd1">-</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">寄件操作状态 (0xBC7)</div>
+                        <div class="status-value" id="reg-bc7">-</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">寄件位置1 (0xBCA)</div>
+                        <div class="status-value" id="reg-bca">-</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">寄件位置2 (0xBCB)</div>
+                        <div class="status-value" id="reg-bcb">-</div>
+                    </div>
+                </div>
+                <div class="status-actions">
+                    <button class="btn btn-info" onclick="refreshStatus()">🔄 刷新状态</button>
+                    <button class="btn btn-secondary" onclick="toggleAutoRefresh()">⏰ 自动刷新</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let currentStep = 0;
+        let autoRefreshInterval = null;
+        let isAutoRefresh = false;
+        let currentSendCode = null;
+        
+        // 寄存器值缓存
+        let registerValues = {
+            '0xBD2': '-',
+            '0xBD0': '-',
+            '0xBD1': '-',
+            '0xBC7': '-',
+            '0xBCA': '-',
+            '0xBCB': '-'
+        };
+        
+        // 步骤状态
+        const STEPS = {
+            CHECK: 0,
+            GENERATE_CODE: 1,
+            TAKE_BOX: 2,
+            PACKAGE: 3,
+            CONFIRM: 4,
+            COMPLETED: 5
+        };
+        
+        // 检查寄件格口状态
+        async function checkSendStatus() {
+            updateStatus('📋 检查寄件格口状态...');
+            
+            try {
+                // 读取0xBD2寄存器检查寄件格口状态
+                const result = await callAPI('/api/modbus/read', {
+                    address: 3026 // 0xBD2
+                });
+                
+                if (result.success) {
+                    const value = result.data.value;
+                    registerValues['0xBD2'] = value.toString();
+                    
+                    if (value === 10) { // 0x0A - 有空寄件箱可寄件
+                        updateStatus('✅ 检测到空寄件箱，可以开始寄件流程');
+                        enableButton('generateCodeBtn');
+                        currentStep = STEPS.GENERATE_CODE;
+                    } else if (value === 11) { // 0x0B - 无空寄件箱不可寄件
+                        updateStatus('❌ 当前无空寄件箱，无法寄件');
+                        resetButtons();
+                        return;
+                    } else {
+                        updateStatus(`⚠️ 寄件格口状态异常: ${value}`);
+                    }
+                } else {
+                    updateStatus('❌ 读取寄件格口状态失败');
+                }
+            } catch (error) {
+                updateStatus(`❌ 检查失败: ${error.message}`);
+            }
+            
+            await refreshStatus();
+        }
+        
+        // 生成寄件码
+        async function generateSendCode() {
+            updateStatus('🎯 生成寄件码...');
+            
+            try {
+                // 生成6位寄件码
+                currentSendCode = Math.floor(100000 + Math.random() * 900000);
+                const code1 = Math.floor(currentSendCode / 1000); // 前三位
+                const code2 = currentSendCode % 1000; // 后三位
+                
+                // 下发寄件码前三位到0xBD0
+                await callAPI('/api/modbus/write', {
+                    address: 3024, // 0xBD0
+                    values: [code1]
+                });
+                registerValues['0xBD0'] = code1.toString();
+                
+                // 下发寄件码后三位到0xBD1
+                await callAPI('/api/modbus/write', {
+                    address: 3025, // 0xBD1
+                    values: [code2]
+                });
+                registerValues['0xBD1'] = code2.toString();
+                
+                // 显示寄件码
+                document.getElementById('sendCodeValue').textContent = currentSendCode;
+                document.getElementById('sendCodeDisplay').style.display = 'block';
+                document.getElementById('sendCodeInput').style.display = 'block';
+                
+                updateStatus('✅ 寄件码已生成并下发，请使用寄件码取空箱');
+                enableButton('takeBoxBtn');
+                disableButton('generateCodeBtn');
+                currentStep = STEPS.TAKE_BOX;
+                
+            } catch (error) {
+                updateStatus(`❌ 生成寄件码失败: ${error.message}`);
+            }
+            
+            await refreshStatus();
+        }
+        
+        // 取空箱
+        async function takeEmptyBox() {
+            updateStatus('📦 开始取空箱流程...');
+            
+            try {
+                // 模拟用户输入寄件码并取空箱
+                updateStatus('📦 正在取空箱，请稍候...');
+                
+                // 轮询检查0xBC7寄存器状态
+                let attempts = 0;
+                const maxAttempts = 30;
+                
+                while (attempts < maxAttempts) {
+                    await sleep(1000);
+                    
+                    const result = await callAPI('/api/modbus/read', {
+                        address: 3015 // 0xBC7
+                    });
+                    
+                    if (result.success) {
+                        const value = result.data.value;
+                        registerValues['0xBC7'] = value.toString();
+                        
+                        if (value === 210) { // 0xD2 - 正在取空箱
+                            updateStatus('📦 正在取空箱中...');
+                        } else if (value === 211) { // 0xD3 - 取空箱完成
+                            updateStatus('✅ 取空箱完成，请放入寄件物品');
+                            enableButton('confirmBtn');
+                            disableButton('takeBoxBtn');
+                            currentStep = STEPS.PACKAGE;
+                            break;
+                        } else if (value === 220) { // 0xDC - 用户存寄件箱中
+                            updateStatus('📦 检测到用户正在存放物品...');
+                        }
+                    }
+                    
+                    attempts++;
+                }
+                
+                if (attempts >= maxAttempts) {
+                    updateStatus('❌ 取空箱超时，请检查设备状态');
+                }
+                
+            } catch (error) {
+                updateStatus(`❌ 取空箱失败: ${error.message}`);
+            }
+            
+            await refreshStatus();
+        }
+        
+        // 使用输入的寄件码取空箱
+        async function inputSendCode() {
+            const inputCode = document.getElementById('sendCode').value;
+            
+            if (!inputCode || inputCode.length !== 6) {
+                updateStatus('❌ 请输入正确的6位寄件码');
+                return;
+            }
+            
+            if (inputCode !== currentSendCode.toString()) {
+                updateStatus('❌ 寄件码不正确，请重新输入');
+                return;
+            }
+            
+            updateStatus('✅ 寄件码验证成功，开始取空箱');
+            await takeEmptyBox();
+        }
+        
+        // 确认寄件
+        async function confirmPackage() {
+            updateStatus('✅ 确认寄件操作...');
+            
+            try {
+                updateStatus('📦 正在存储寄件箱，请稍候...');
+                
+                // 轮询检查存储完成状态
+                let attempts = 0;
+                const maxAttempts = 30;
+                
+                while (attempts < maxAttempts) {
+                    await sleep(1000);
+                    
+                    const result = await callAPI('/api/modbus/read', {
+                        address: 3015 // 0xBC7
+                    });
+                    
+                    if (result.success) {
+                        const value = result.data.value;
+                        registerValues['0xBC7'] = value.toString();
+                        
+                        if (value === 210) { // 0xD2 - 正在存寄件箱
+                            updateStatus('📦 正在存储寄件箱中...');
+                        } else if (value === 211) { // 0xD3 - 存寄件箱完成
+                            updateStatus('✅ 寄件完成！');
+                            
+                            // 读取寄件位置信息
+                            const bcaResult = await callAPI('/api/modbus/read', {
+                                address: 3018 // 0xBCA
+                            });
+                            const bcbResult = await callAPI('/api/modbus/read', {
+                                address: 3019 // 0xBCB
+                            });
+                            
+                            if (bcaResult.success && bcbResult.success) {
+                                registerValues['0xBCA'] = bcaResult.data.value.toString();
+                                registerValues['0xBCB'] = bcbResult.data.value.toString();
+                                updateStatus(`✅ 寄件完成！位置信息 - BCA: ${bcaResult.data.value}, BCB: ${bcbResult.data.value}`);
+                            }
+                            
+                            disableButton('confirmBtn');
+                            currentStep = STEPS.COMPLETED;
+                            
+                            // 显示完成提示
+                            setTimeout(() => {
+                                alert(`🎉 寄件成功！\n寄件码: ${currentSendCode}\n请保存好寄件码用于后续查询`);
+                            }, 1000);
+                            
+                            break;
+                        }
+                    }
+                    
+                    attempts++;
+                }
+                
+                if (attempts >= maxAttempts) {
+                    updateStatus('❌ 寄件确认超时，请检查设备状态');
+                }
+                
+            } catch (error) {
+                updateStatus(`❌ 确认寄件失败: ${error.message}`);
+            }
+            
+            await refreshStatus();
+        }
+        
+        // 重置流程
+        function resetProcess() {
+            currentStep = STEPS.CHECK;
+            currentSendCode = null;
+            
+            // 重置按钮状态
+            resetButtons();
+            
+            // 隐藏寄件码显示
+            document.getElementById('sendCodeDisplay').style.display = 'none';
+            document.getElementById('sendCodeInput').style.display = 'none';
+            document.getElementById('sendCode').value = '';
+            
+            updateStatus('🔄 流程已重置，可以重新开始寄件');
+        }
+        
+        // 刷新寄存器状态
+        async function refreshStatus() {
+            try {
+                // 读取所有相关寄存器
+                const registers = {
+                    '0xBD2': 3026,
+                    '0xBD0': 3024,
+                    '0xBD1': 3025,
+                    '0xBC7': 3015,
+                    '0xBCA': 3018,
+                    '0xBCB': 3019
+                };
+                
+                for (const [regName, address] of Object.entries(registers)) {
+                    try {
+                        const result = await callAPI('/api/modbus/read', {
+                            address: address
+                        });
+                        
+                        if (result.success) {
+                            registerValues[regName] = result.data.value.toString();
+                        }
+                    } catch (error) {
+                        console.error(`读取寄存器 ${regName} 失败:`, error);
+                    }
+                }
+                
+                // 更新显示
+                const registerElements = {
+                    'reg-bd2': registerValues['0xBD2'],
+                    'reg-bd0': registerValues['0xBD0'],
+                    'reg-bd1': registerValues['0xBD1'],
+                    'reg-bc7': registerValues['0xBC7'],
+                    'reg-bca': registerValues['0xBCA'],
+                    'reg-bcb': registerValues['0xBCB']
+                };
+                
+                for (const [elementId, value] of Object.entries(registerElements)) {
+                    const element = document.getElementById(elementId);
+                    if (element) {
+                        element.textContent = value || '-';
+                    }
+                }
+                
+            } catch (error) {
+                console.error('刷新状态失败:', error);
+            }
+        }
+        
+        // 切换自动刷新
+        function toggleAutoRefresh() {
+            if (isAutoRefresh) {
+                clearInterval(autoRefreshInterval);
+                isAutoRefresh = false;
+                document.querySelector('[onclick="toggleAutoRefresh()"]').textContent = '⏰ 自动刷新';
+                updateStatus('⏸️ 自动刷新已停止');
+            } else {
+                autoRefreshInterval = setInterval(refreshStatus, 2000);
+                isAutoRefresh = true;
+                document.querySelector('[onclick="toggleAutoRefresh()"]').textContent = '⏹️ 停止刷新';
+                updateStatus('▶️ 自动刷新已启动');
+            }
+        }
+        
+        // 工具函数
+        function updateStatus(message) {
+            const statusElement = document.getElementById('statusDisplay');
+            if (statusElement) {
+                statusElement.textContent = `状态：${message}`;
+            }
+            console.log(message);
+        }
+        
+        function enableButton(buttonId) {
+            const button = document.getElementById(buttonId);
+            if (button) {
+                button.disabled = false;
+                button.classList.add('pulse');
+                setTimeout(() => button.classList.remove('pulse'), 2000);
+            }
+        }
+        
+        function disableButton(buttonId) {
+            const button = document.getElementById(buttonId);
+            if (button) {
+                button.disabled = true;
+                button.classList.remove('pulse');
+            }
+        }
+        
+        function resetButtons() {
+            const buttons = ['generateCodeBtn', 'takeBoxBtn', 'confirmBtn'];
+            buttons.forEach(buttonId => {
+                disableButton(buttonId);
+            });
+            enableButton('checkBtn');
+        }
+        
+        async function callAPI(endpoint, data) {
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('API调用失败:', error);
+                throw error;
+            }
+        }
+        
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            updateStatus('页面加载完成，可以开始寄件流程测试');
+            resetButtons();
+            refreshStatus();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>安全验证失败 - 无人机快递柜管理系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .error-container {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .error-icon {
+            font-size: 80px;
+            color: #ff6b6b;
+            margin-bottom: 20px;
+        }
+
+        .error-title {
+            font-size: 28px;
+            color: #333;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .error-message {
+            font-size: 16px;
+            color: #666;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .key-input-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .key-input-title {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .key-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 15px;
+            transition: border-color 0.3s;
+        }
+
+        .key-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin: 5px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 5px 15px rgba(108, 117, 125, 0.4);
+        }
+
+        .help-text {
+            font-size: 14px;
+            color: #888;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-icon">🔒</div>
+        <h1 class="error-title">安全验证失败</h1>
+        <p class="error-message">
+            您的访问缺少有效的安全密钥，或密钥已过期。<br>
+            请联系管理员获取正确的访问链接，或在下方输入有效密钥。
+        </p>
+        
+        <div class="key-input-section">
+            <div class="key-input-title">输入安全密钥：</div>
+            <input type="text" class="key-input" id="keyInput" placeholder="请输入安全密钥">
+            <button class="btn" onclick="setKey()">设置密钥</button>
+        </div>
+        
+        <div>
+            <button class="btn btn-secondary" onclick="goBack()">返回上页</button>
+            <button class="btn" onclick="goHome()">返回首页</button>
+        </div>
+        
+        <p class="help-text">
+            正确的访问链接格式：http://localhost:8000/machine/机器名/key=您的密钥
+        </p>
+    </div>
+
+    <script>
+        function setKey() {
+            const key = document.getElementById('keyInput').value.trim();
+            if (!key) {
+                alert('请输入有效的安全密钥');
+                return;
+            }
+            
+            // 保存密钥到localStorage
+            localStorage.setItem('securityKey', key);
+            
+            // 重定向到首页并带上key参数
+            window.location.href = `/?key=${key}`;
+        }
+        
+        function goBack() {
+            window.history.back();
+        }
+        
+        function goHome() {
+            window.location.href = '/';
+        }
+        
+        // 允许回车键设置密钥
+        document.getElementById('keyInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                setKey();
+            }
+        });
+    </script>
+</body>
+</html>
