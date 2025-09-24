@@ -116,6 +116,65 @@
             background: #007bff;
             transition: width 0.3s;
         }
+        .monitor-controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+        .register-container {
+            max-height: 600px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .register-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .register-table th,
+        .register-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        .register-table th {
+            background: #f8f9fa;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .register-table tr:hover {
+            background: #f5f5f5;
+        }
+        .register-value {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+        .register-error {
+            color: #dc3545;
+            font-style: italic;
+        }
+        .register-success {
+            color: #28a745;
+        }
+        .register-category {
+            background: #e3f2fd !important;
+            font-weight: bold;
+            color: #1976d2;
+        }
+        .loading-message {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -127,6 +186,11 @@
             </div>
             <div class="status-display">
                 <span id="connectionStatus" class="status-offline">离线</span>
+                <div id="systemInfo" style="margin-top: 10px; font-size: 12px; color: #666;">
+                    连接状态: 离线<br>
+                    最后通信: 无<br>
+                    系统状态: 未知
+                </div>
             </div>
         </div>
 
@@ -144,6 +208,7 @@
             <div class="control-section">
                 <div class="section-title">存件流程</div>
                 <div class="status-display" id="storageStatus">存件状态: 待机</div>
+                <div class="status-display" id="pickupStatus">取件状态: 待机</div>
                 <div class="input-group">
                     <label>取件码前三位:</label>
                     <input type="text" id="pickupCodeFirst" maxlength="3" placeholder="前三位">
@@ -152,11 +217,8 @@
                     <label>取件码后三位:</label>
                     <input type="text" id="pickupCodeLast" maxlength="3" placeholder="后三位">
                 </div>
-                <button class="btn btn-primary" onclick="startStorageProcess()">开始存件流程</button>
-                <button class="btn btn-success" onclick="confirmDroneLanded()">确认无人机降落</button>
-                <button class="btn btn-warning" onclick="confirmServoOpen()">确认舵机打开</button>
-                <button class="btn btn-danger" onclick="confirmServoClose()">确认舵机关闭</button>
-                <button class="btn btn-secondary" onclick="confirmDroneTakeoff()">确认无人机起飞</button>
+                <button class="btn btn-primary" onclick="confirmStorageStart()">确认存件开始</button>
+                <button class="btn btn-success" onclick="executeStorageProcess()">执行存件流程</button>
                 <div class="progress-bar">
                     <div class="progress-fill" id="storageProgress" style="width: 0%"></div>
                 </div>
@@ -185,11 +247,21 @@
             </div>
 
             <!-- 系统监控 -->
-            <div class="control-section">
-                <div class="section-title">系统监控</div>
-                <button class="btn btn-secondary" onclick="getSystemStatus()">刷新状态</button>
-                <button class="btn btn-secondary" onclick="testConnection()">测试连接</button>
-                <div class="status-display" id="systemInfo">系统信息加载中...</div>
++
+
+            <!-- 寄存器监视器 -->
+            <div class="control-section" style="grid-column: 1 / -1;">
+                <div class="section-title">寄存器监视器</div>
+                <div class="monitor-controls">
+                    <button class="btn btn-primary" onclick="startRegisterMonitoring()">开始监视</button>
+                    <button class="btn btn-danger" onclick="stopRegisterMonitoring()">停止监视</button>
+                    <button class="btn btn-secondary" onclick="refreshRegisters()">手动刷新</button>
+                    <span class="status-display" id="monitorStatus">监视状态: 停止</span>
+                    <span class="status-display" id="registerUpdateTime">最后更新: 未更新</span>
+                </div>
+                <div class="register-container" id="registerContainer">
+                    <div class="loading-message">点击"开始监视"或"手动刷新"来加载寄存器数据</div>
+                </div>
             </div>
 
             <!-- 操作日志 -->
@@ -295,8 +367,27 @@
             }
         }
 
-        // 存件流程
-        async function startStorageProcess() {
+        // 确认存件开始
+        async function confirmStorageStart() {
+            try {
+                addLog('确认存件开始...');
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/storage/confirm-start`), {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addLog('存件开始确认成功，请执行存件流程');
+                    updateStorageProgress(25);
+                } else {
+                    addLog(`存件开始确认失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`存件开始确认异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 执行完整存件流程
+        async function executeStorageProcess() {
             const codeFirst = document.getElementById('pickupCodeFirst').value;
             const codeLast = document.getElementById('pickupCodeLast').value;
             
@@ -306,8 +397,11 @@
             }
 
             try {
-                addLog('开始存件流程...');
-                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/storage/start`), {
+                addLog('执行存件流程...');
+                updateStorageProgress(50);
+                
+                // 下发取件码并执行完整流程
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/storage/execute`), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -317,80 +411,17 @@
                 });
                 const result = await response.json();
                 if (result.success) {
-                    addLog('存件流程启动成功');
-                    updateStorageProgress(20);
-                } else {
-                    addLog(`存件流程启动失败: ${result.message}`, 'error');
-                }
-            } catch (error) {
-                addLog(`存件流程异常: ${error.message}`, 'error');
-            }
-        }
-
-        // 确认无人机降落
-        async function confirmDroneLanded() {
-            try {
-                addLog('确认无人机降落...');
-                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/storage/drone-landed`), {
-                    method: 'POST'
-                });
-                const result = await response.json();
-                if (result.success) {
-                    addLog('无人机降落确认成功');
-                    updateStorageProgress(40);
-                } else {
-                    addLog(`无人机降落确认失败: ${result.message}`, 'error');
-                }
-            } catch (error) {
-                addLog(`无人机降落确认异常: ${error.message}`, 'error');
-            }
-        }
-
-        // 确认舵机操作
-        async function confirmServoOpen() {
-            await confirmServoAction('open', '打开');
-        }
-
-        async function confirmServoClose() {
-            await confirmServoAction('close', '关闭');
-        }
-
-        async function confirmServoAction(action, actionText) {
-            try {
-                addLog(`确认舵机${actionText}...`);
-                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/storage/servo-${action}`), {
-                    method: 'POST'
-                });
-                const result = await response.json();
-                if (result.success) {
-                    addLog(`舵机${actionText}确认成功`);
-                    updateStorageProgress(action === 'open' ? 60 : 80);
-                } else {
-                    addLog(`舵机${actionText}确认失败: ${result.message}`, 'error');
-                }
-            } catch (error) {
-                addLog(`舵机${actionText}确认异常: ${error.message}`, 'error');
-            }
-        }
-
-        // 确认无人机起飞
-        async function confirmDroneTakeoff() {
-            try {
-                addLog('确认无人机起飞...');
-                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/storage/drone-takeoff`), {
-                    method: 'POST'
-                });
-                const result = await response.json();
-                if (result.success) {
-                    addLog('无人机起飞确认成功，存件流程完成');
+                    addLog('存件流程执行成功，货叉到位，延时10秒后舵机操作');
                     updateStorageProgress(100);
                 } else {
-                    addLog(`无人机起飞确认失败: ${result.message}`, 'error');
+                    addLog(`存件流程执行失败: ${result.message}`, 'error');
                 }
             } catch (error) {
-                addLog(`无人机起飞确认异常: ${error.message}`, 'error');
+                addLog(`存件流程执行异常: ${error.message}`, 'error');
             }
         }
+
+
 
         // 更新存件进度
         function updateStorageProgress(percent) {
@@ -495,6 +526,34 @@
             }
         }
 
+        // 检查寄件格口状态
+        async function checkSendBoxStatus() {
+            try {
+                const response = await fetch(addKeyToUrl(`/api/modbus/read`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        address: 0xBD2,
+                        machine_name: machineName
+                    })
+                });
+                const result = await response.json();
+                if (result.success && result.data && result.data.value !== undefined) {
+                    const status = result.data.value;
+                    if (status === 11) { // 0x0B - 无空寄件箱不可寄件
+                        return { success: false, message: '当前无空寄件箱，无法设置寄件码' };
+                    } else if (status !== 10) { // 0x0A - 有空寄件箱可寄件
+                        return { success: false, message: `寄件格口状态异常，无法设置寄件码: ${status}` };
+                    }
+                    return { success: true, message: '寄件格口状态正常' };
+                } else {
+                    return { success: false, message: '无法读取寄件格口状态' };
+                }
+            } catch (error) {
+                return { success: false, message: `检查寄件格口状态异常: ${error.message}` };
+            }
+        }
+
         // 设置寄件码
         async function setSendCode() {
             const codeFirst = document.getElementById('sendCodeFirst').value;
@@ -506,6 +565,16 @@
             }
 
             try {
+                // 先检查寄件格口状态
+                addLog('检查寄件格口状态...');
+                const statusCheck = await checkSendBoxStatus();
+                if (!statusCheck.success) {
+                    addLog(`寄件格口状态检查失败: ${statusCheck.message}`, 'error');
+                    alert(statusCheck.message);
+                    return;
+                }
+                addLog('寄件格口状态检查通过');
+
                 addLog('设置寄件码...');
                 const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/send/set-code`), {
                     method: 'POST',
@@ -649,15 +718,18 @@
                 const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/status`));
                 const result = await response.json();
                 
-                if (result.success && result.data) {
-                    const data = result.data;
+                if (result.success && result.data && result.data.status) {
+                    const status = result.data.status;
+                    const stats = status.connection_stats || {};
+                    const connected = stats.connected || false;
+                    
                     document.getElementById('systemInfo').innerHTML = `
-                        连接状态: ${data.connected ? '在线' : '离线'}<br>
-                        最后通信: ${data.last_communication || '无'}<br>
-                        系统状态: ${data.system_status || '未知'}
+                        连接状态: ${connected ? '在线' : '离线'}<br>
+                        最后通信: ${stats.last_used ? new Date(stats.last_used * 1000).toLocaleString() : '无'}<br>
+                        系统状态: ${connected ? '正常' : '离线'}
                     `;
-                    document.getElementById('connectionStatus').textContent = data.connected ? '在线' : '离线';
-                    document.getElementById('connectionStatus').className = data.connected ? 'status-online' : 'status-offline';
+                    document.getElementById('connectionStatus').textContent = connected ? '在线' : '离线';
+                    document.getElementById('connectionStatus').className = connected ? 'status-online' : 'status-offline';
                 } else {
                     addLog(`获取系统状态失败: ${result.message || '未知错误'}`, 'error');
                     document.getElementById('systemInfo').innerHTML = '获取状态失败';
@@ -689,6 +761,273 @@
             }
         }
 
+        // 寄存器监视器相关变量
+        let registerMonitoringInterval = null;
+        let registerData = {};
+
+        // 获取所有寄存器数据
+        async function getAllRegisters() {
+            try {
+                const response = await fetch(addKeyToUrl(`/api/machines/${machineName}/registers/all`));
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    registerData = result.data.registers;
+                    updateRegisterDisplay();
+                    document.getElementById('registerUpdateTime').textContent = `最后更新: ${new Date().toLocaleTimeString()}`;
+                    
+                    // 更新监视状态统计
+                    const totalCount = result.data.total_count;
+                    const successCount = result.data.success_count;
+                    const failedCount = result.data.failed_count;
+                    
+                    addLog(`寄存器读取完成: 成功${successCount}/${totalCount}个，失败${failedCount}个`);
+                } else {
+                    addLog(`获取寄存器数据失败: ${result.message || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                addLog(`获取寄存器数据异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 根据寄存器地址和值获取状态描述
+        function getRegisterStatusDescription(address, decValue) {
+            const statusMap = {
+                '0xBB8': { // 舱门操作
+                    0: '空位',
+                    10: '开舱门',
+                    11: '开舱门到位',
+                    20: '关舱门',
+                    21: '关舱门到位'
+                },
+                '0xBB9': { // 停机坪无人机判断
+                    0: '空位',
+                    10: '有飞机',
+                    11: '有飞机确认',
+                    20: '无飞机',
+                    21: '无飞机确认'
+                },
+                '0xBBA': { // 无人机存、取包裹操作
+                    0: '空位',
+                    110: '存包裹',
+                    111: '存包裹完毕',
+                    120: '无人机取件中',
+                    121: '无人机取件完成',
+                    122: '无人机不取件完成（可起飞）'
+                },
+                '0xBBB': { // 无人机舵机状态
+                    0: '空位',
+                    1: '无人机对正完成，可开舵机',
+                    2: '无人机取包裹完成，可关舵机',
+                    10: '舵机开',
+                    11: '舵机开确认',
+                    20: '舵机关',
+                    21: '舵机关确认'
+                },
+                '0xBBC': { // 无人机当前存包裹位置
+                    101: '1#位置',
+                    102: '2#位置',
+                    103: '3#位置'
+                },
+                '0xBBD': { // 无人机当前取包裹位置
+                    104: '4#位置',
+                    105: '5#位置',
+                    106: '6#位置'
+                },
+                '0xBBE': { // 无人机存件格口状态
+                    0: '空位',
+                    10: '机柜已存满',
+                    20: '机柜未存满'
+                },
+                '0xBC2': { // 取包裹位置信息
+                    101: '1#位置',
+                    102: '2#位置',
+                    103: '3#位置'
+                },
+                '0xBC3': { // 用户取包裹操作
+                    210: '取包裹',
+                    211: '取包裹完毕'
+                },
+                '0xBC4': { // 用户回收包裹操作（开箱门）
+                    210: '回收步骤-开箱门中',
+                    211: '回收步骤-开箱门完成'
+                },
+                '0xBC5': { // 用户确认回收包裹操作
+                    210: '回收包裹中',
+                    211: '回收包裹完毕'
+                },
+                '0xBC6': { // 用户寄件取空箱格口信息
+                    104: '4#位置',
+                    105: '5#位置',
+                    106: '6#位置'
+                },
+                '0xBC7': { // 用户寄件操作
+                    0: '空位',
+                    210: '用户取空箱中/用户存寄件箱二次确认',
+                    211: '用户取空箱完毕/用户存寄件箱完成',
+                    220: '用户存寄件箱中（开门完成）'
+                },
+                '0xBCA': { // 用户寄件存寄件箱格口信息
+                    104: '4#位置',
+                    105: '5#位置',
+                    106: '6#位置'
+                },
+                '0xBCC': { // 系统状态信息（写）
+                    10: '开启自动模式',
+                    11: '取消自动模式',
+                    20: '开启暂停模式',
+                    21: '取消暂停模式',
+                    30: '开启急停模式',
+                    31: '取消急停模式'
+                },
+                '0xBCD': { // 系统状态信息（读）
+                    12: '自动状态',
+                    22: '暂停状态',
+                    32: '急停状态'
+                },
+                '0xBCE': { // 故障清除
+                    10: '故障清除',
+                    11: '清除完成'
+                },
+                '0xBD2': { // 用户寄件格口状态
+                    0: '空位',
+                    10: '有空寄件箱，可下发寄件码',
+                    20: '无空寄件箱，不可下发寄件码'
+                }
+            };
+            
+            // 系统报警寄存器（0xBFE-0xC0A）
+            const alarmRegisters = ['0xBFE', '0xBFF', '0xC00', '0xC01', '0xC02', '0xC03', '0xC04', '0xC05', '0xC06', '0xC07', '0xC08', '0xC09', '0xC0A'];
+            if (alarmRegisters.includes(address)) {
+                return decValue === 11 ? '故障' : '正常';
+            }
+            
+            // 气象站数据直接显示数值
+            const weatherRegisters = ['0x8FC', '0x8FE', '0x900', '0x902', '0x904', '0x906'];
+            if (weatherRegisters.includes(address)) {
+                const weatherUnits = {
+                    '0x8FC': '%', // 湿度
+                    '0x8FE': '°C', // 温度
+                    '0x900': '级', // 风力
+                    '0x902': 'mm', // 雨量
+                    '0x904': 'm/s', // 风速
+                    '0x906': '°' // 风向
+                };
+                return `${decValue}${weatherUnits[address] || ''}`;
+            }
+            
+            // 寄件码和重量直接显示数值
+            if (address === '0xBC0' || address === '0xBC1' || address === '0xBD0' || address === '0xBD1') {
+                return `${decValue}`;
+            }
+            if (address === '0xBCB') {
+                return `${decValue}KG`;
+            }
+            
+            // 查找状态描述
+            if (statusMap[address] && statusMap[address][decValue] !== undefined) {
+                return statusMap[address][decValue];
+            }
+            
+            return '未知状态';
+        }
+
+        // 更新寄存器显示
+        function updateRegisterDisplay() {
+            const container = document.getElementById('registerContainer');
+            
+            if (Object.keys(registerData).length === 0) {
+                container.innerHTML = '<div class="loading-message">暂无寄存器数据</div>';
+                return;
+            }
+            
+            // 按类别分组寄存器
+            const categories = {
+                '舱门和停机坪': ['0xBB8', '0xBB9'],
+                '无人机存取包裹': ['0xBBA', '0xBBB', '0xBBC', '0xBBD', '0xBBE'],
+                '用户取包裹': ['0xBC0', '0xBC1', '0xBC2', '0xBC3'],
+                '用户回收包裹': ['0xBC4', '0xBC5'],
+                '用户寄件': ['0xBC6', '0xBC7', '0xBCA', '0xBCB'],
+                '系统状态和寄件码': ['0xBCC', '0xBCD', '0xBCE', '0xBD0', '0xBD1', '0xBD2'],
+                '气象站': ['0x8FC', '0x8FE', '0x900', '0x902', '0x904', '0x906'],
+                '系统报警': ['0xBFE', '0xBFF', '0xC00', '0xC01', '0xC02', '0xC03', '0xC04', '0xC05', '0xC06', '0xC07', '0xC08', '0xC09', '0xC0A']
+            };
+            
+            let html = '<table class="register-table">';
+            html += '<thead><tr><th>地址</th><th>名称</th><th>十六进制值</th><th>十进制值</th><th>描述</th><th>当前状态</th></tr></thead><tbody>';
+            
+            // 按类别显示寄存器
+            for (const [categoryName, addresses] of Object.entries(categories)) {
+                html += `<tr class="register-category"><td colspan="6">${categoryName}</td></tr>`;
+                
+                for (const addr of addresses) {
+                    const reg = registerData[addr];
+                    if (reg) {
+                        const statusClass = reg.error ? 'register-error' : 'register-success';
+                        const hexValue = reg.value || 'N/A';
+                        const decValue = reg.decimal !== null ? reg.decimal : 'N/A';
+                        
+                        // 获取状态描述
+                        let statusDescription = '未知';
+                        if (!reg.error && reg.decimal !== null) {
+                            statusDescription = getRegisterStatusDescription(addr, reg.decimal);
+                        } else if (reg.error) {
+                            statusDescription = reg.error;
+                        }
+                        
+                        html += `<tr>`;
+                        html += `<td class="register-value">${addr}</td>`;
+                        html += `<td>${reg.name}</td>`;
+                        html += `<td class="register-value ${statusClass}">${hexValue}</td>`;
+                        html += `<td class="register-value ${statusClass}">${decValue}</td>`;
+                        html += `<td>${reg.description}</td>`;
+                        html += `<td class="${statusClass}" style="font-weight: bold;">${statusDescription}</td>`;
+                        html += `</tr>`;
+                    }
+                }
+            }
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        // 开始寄存器监视
+        function startRegisterMonitoring() {
+            if (registerMonitoringInterval) {
+                addLog('寄存器监视已在运行中');
+                return;
+            }
+            
+            addLog('开始监视所有寄存器');
+            document.getElementById('monitorStatus').textContent = '监视状态: 运行中';
+            
+            // 立即获取一次数据
+            getAllRegisters();
+            
+            // 每5秒轮询一次
+            registerMonitoringInterval = setInterval(() => {
+                getAllRegisters();
+            }, 5000);
+        }
+
+        // 停止寄存器监视
+        function stopRegisterMonitoring() {
+            if (registerMonitoringInterval) {
+                clearInterval(registerMonitoringInterval);
+                registerMonitoringInterval = null;
+                document.getElementById('monitorStatus').textContent = '监视状态: 停止';
+                addLog('已停止监视寄存器');
+            } else {
+                addLog('寄存器监视未在运行');
+            }
+        }
+
+        // 手动刷新寄存器
+        function refreshRegisters() {
+            addLog('手动刷新寄存器数据');
+            getAllRegisters();
+        }
+
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', function() {
             initSecurityKey();
@@ -701,6 +1040,16 @@
 
         // 定时刷新状态
         setInterval(getSystemStatus, 30000);
+        
+        // 页面卸载时清理定时器
+        window.addEventListener('beforeunload', function() {
+            if (registerMonitoringInterval) {
+                clearInterval(registerMonitoringInterval);
+            }
+            if (sendMonitoringInterval) {
+                clearInterval(sendMonitoringInterval);
+            }
+        });
     </script>
 </body>
 </html>

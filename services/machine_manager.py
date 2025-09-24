@@ -82,6 +82,16 @@ class MachineConnection:
     
     def get_stats(self) -> Dict[str, Any]:
         """获取连接统计信息"""
+        # 检查连接状态：优先使用客户端的连接状态
+        is_connected = False
+        if self.client is not None:
+            # 直接使用客户端的连接状态，这更可靠
+            is_connected = self.client.is_connected
+            # 如果连接计数大于0且错误率不高，也认为是连接的
+            if not is_connected and self.connection_count > 0:
+                error_rate = self.error_count / (self.connection_count + self.error_count) if (self.connection_count + self.error_count) > 0 else 1
+                is_connected = error_rate < 0.3  # 错误率低于30%认为连接正常
+        
         return {
             'machine_name': self.machine_name,
             'config': self.config,
@@ -90,7 +100,7 @@ class MachineConnection:
             'error_count': self.error_count,
             'last_error': self.last_error,
             'is_healthy': self.is_healthy(),
-            'connected': self.client is not None and self.client.is_connected
+            'connected': is_connected
         }
 
 class MachineManager:
